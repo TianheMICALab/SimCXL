@@ -19,7 +19,7 @@ A good starting point is [Introduction to gem5](http://www.gem5.org/Introduction
 ```bash
 sudo apt install build-essential git m4 scons zlib1g zlib1g-dev \
     libprotobuf-dev protobuf-compiler libprotoc-dev libgoogle-perftools-dev \
-    python3-dev python-is-python3 libboost-all-dev pkg-config
+    python3-dev python-is-python3 libboost-all-dev pkg-config libpng-dev
 ```
 
 ## Building CXL-DMSim
