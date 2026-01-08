@@ -36,7 +36,6 @@ from m5.objects import (
     BaseXBar,
     Bridge,
     CXLBridge,
-    CXLMemBar,
     CowDiskImage,
     IdeDisk,
     IOXBar,
@@ -127,9 +126,24 @@ class X86Board(AbstractSystemBoard, KernelDiskWorkload):
         interrupts_address_space_base = 0xA000000000000000
         APIC_range_size = 1 << 12
 
+        # Configure CXL Device
+        cxl_dram = self.get_cxl_memory()
+        cxl_mem_range = AddrRange(Addr(0x100000000), size=cxl_dram.get_size())
+        cxl_dram.set_memory_range([cxl_mem_range])
+        self.pc.south_bridge.cxl_mem_ctrl.connectMemory(cxl_mem_range, cxl_dram)
+        cxl_abstract_mems = []
+        for mc in cxl_dram.get_memory_controllers():
+            cxl_abstract_mems.append(mc.dram)
+        self.memories.extend(cxl_abstract_mems)
+
+        if self._is_asic:
+            self.pc.south_bridge.cxl_mem_ctrl.configCXL(Latency("15ns"), 48)
+        else:
+            self.pc.south_bridge.cxl_mem_ctrl.configCXL(Latency("60ns"), 36)
+
         # Setup memory system specific settings.
         if self.get_cache_hierarchy().is_ruby():
-            self.pc.attachIO(self.get_io_bus(), [self.pc.south_bridge.ide.dma, self.pc.south_bridge.cxlmemory.dma])
+            self.pc.attachIO(self.get_io_bus(), [self.pc.south_bridge.ide.dma, self.pc.south_bridge.cxl_mem_ctrl.dma])
         else:
             # # Constants similar to x86_traits.hh
             IO_address_space_base = 0x8000000000000000
@@ -150,33 +164,8 @@ class X86Board(AbstractSystemBoard, KernelDiskWorkload):
                     IO_address_space_base, interrupts_address_space_base - 1
                 ),
                 AddrRange(pci_config_address_space_base, Addr.max),
+                cxl_mem_range
             ]
-
-            # Configure CXL Device
-            cxl_mem_start = 0x100000000
-            cxl_dram = self.get_cxl_memory()
-            cxl_mem_range = AddrRange(Addr(cxl_mem_start), size=cxl_dram.get_size())
-            self.bridge.ranges.append(cxl_mem_range)
-            self.pc.south_bridge.cxlmemory.cxl_mem_range = cxl_mem_range
-            cxl_dram.set_memory_range([cxl_mem_range])
-            cxl_abstract_mems = []
-            for mc in cxl_dram.get_memory_controllers():
-                cxl_abstract_mems.append(mc.dram)
-            self.memories.extend(cxl_abstract_mems)
-            self.cxl_mem_bus = CXLMemBar()
-            self.cxl_mem_bus.cpu_side_ports = self.pc.south_bridge.cxlmemory.mem_req_port
-            for _, port in cxl_dram.get_mem_ports():
-                self.cxl_mem_bus.mem_side_ports = port
-
-            self.pc.south_bridge.cxlmemory.BAR0.size = cxl_dram.get_size_str()
-            if self._is_asic:
-                self.pc.south_bridge.cxlmemory.proto_proc_lat = Latency("15ns")
-                self.pc.south_bridge.cxlmemory.rsp_size = 48
-                self.pc.south_bridge.cxlmemory.req_size = 48
-            else:
-                self.pc.south_bridge.cxlmemory.proto_proc_lat = Latency("60ns")
-                self.pc.south_bridge.cxlmemory.rsp_size = 36
-                self.pc.south_bridge.cxlmemory.req_size = 36
 
             self.apicbridge = Bridge(delay="50ns")
             self.apicbridge.cpu_side_port = self.get_io_bus().mem_side_ports
@@ -304,7 +293,7 @@ class X86Board(AbstractSystemBoard, KernelDiskWorkload):
 
     @overrides(AbstractSystemBoard)
     def get_dma_ports(self) -> Sequence[Port]:
-        return [self.pc.south_bridge.ide.dma, self.iobus.mem_side_ports, self.pc.south_bridge.cxlmemory.dma]
+        return [self.pc.south_bridge.ide.dma, self.iobus.mem_side_ports, self.pc.south_bridge.cxl_mem_ctrl.dma]
 
     @overrides(AbstractSystemBoard)
     def has_coherent_io(self) -> bool:

@@ -38,6 +38,14 @@ SimObject('Cmos.py', sim_objects=['Cmos'], tags='x86 isa')
 Source('cmos.cc', tags='x86 isa')
 DebugFlag('CMOS', 'Accesses to CMOS devices', tags='x86 isa')
 
+SimObject('CXLDevice.py', sim_objects=[
+    'CXLMemCtrl', 'CXLType1Accel', 'CXLType2Accel'], tags='x86 isa')
+Source('cxl_mem_ctrl.cc', tags='x86 isa')
+Source('cxl_type1_accel.cc', tags='x86 isa')
+Source('cxl_type2_accel.cc', tags='x86 isa')
+DebugFlag('CXLMemCtrl', tags='x86 isa')
+DebugFlag('CXLRange', tags='x86 isa')
+
 SimObject('I8259.py', sim_objects=['I8259'], enums=['X86I8259CascadeMode'],
     tags='x86 isa')
 Source('i8259.cc', tags='x86 isa')

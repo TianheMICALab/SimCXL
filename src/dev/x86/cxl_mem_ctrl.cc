@@ -1,35 +1,36 @@
 #include "base/trace.hh"
-#include "dev/storage/cxl_memory.hh"
-#include "debug/CXLMemory.hh"
+#include "dev/x86/cxl_mem_ctrl.hh"
+#include "debug/CXLMemCtrl.hh"
+#include "debug/CXLRange.hh"
 
 namespace gem5
 {
 
-CXLMemory::CXLResponsePort::CXLResponsePort(const std::string& _name,
-                                        CXLMemory& _cxlMemory,
+CXLMemCtrl::CXLResponsePort::CXLResponsePort(const std::string& _name,
+                                        CXLMemCtrl& _ctrl,
                                         CXLRequestPort& _memReqPort,
                                         Cycles _protoProcLat, int _resp_limit,
-                                        AddrRange _cxlMemRange)
-    : ResponsePort(_name), cxlMemory(_cxlMemory),
+                                        AddrRange _devMemRange)
+    : ResponsePort(_name), ctrl(_ctrl),
     memReqPort(_memReqPort), protoProcLat(_protoProcLat),
-    cxlMemRange(_cxlMemRange), outstandingResponses(0), 
+    devMemRange(_devMemRange), outstandingResponses(0), 
     retryReq(false), respQueueLimit(_resp_limit),
     sendEvent([this]{ trySendTiming(); }, _name)
 {
 }
 
-CXLMemory::CXLRequestPort::CXLRequestPort(const std::string& _name,
-                                    CXLMemory& _cxlMemory,
+CXLMemCtrl::CXLRequestPort::CXLRequestPort(const std::string& _name,
+                                    CXLMemCtrl& _ctrl,
                                     CXLResponsePort& _cxlRspPort,
                                     Cycles _protoProcLat, int _req_limit)
-    : RequestPort(_name), cxlMemory(_cxlMemory),
+    : RequestPort(_name), ctrl(_ctrl),
     cxlRspPort(_cxlRspPort),
     protoProcLat(_protoProcLat), reqQueueLimit(_req_limit),
     sendEvent([this]{ trySendTiming(); }, _name)
 {
 }
 
-CXLMemory::CXLMemory(const Params &p)
+CXLMemCtrl::CXLMemCtrl(const Params &p)
     : PciDevice(p),
     cxlRspPort(p.name + ".cxl_rsp_port", *this, memReqPort,
             ticksToCycles(p.proto_proc_lat), p.rsp_size, p.cxl_mem_range),
@@ -38,12 +39,12 @@ CXLMemory::CXLMemory(const Params &p)
     preRspTick(0),        
     stats(*this)
     {
-        DPRINTF(CXLMemory, "BAR0_addr:0x%lx, BAR0_size:0x%lx\n",
+        DPRINTF(CXLMemCtrl, "BAR0_addr:0x%lx, BAR0_size:0x%lx\n",
             p.BAR0->addr(), p.BAR0->size());
     }
 
-CXLMemory::CXLCtrlStats::CXLCtrlStats(CXLMemory &_cxlMemory)
-    : statistics::Group(&_cxlMemory),
+CXLMemCtrl::CXLCtrlStats::CXLCtrlStats(CXLMemCtrl &_ctrl)
+    : statistics::Group(&_ctrl),
 
       ADD_STAT(reqQueFullEvents, statistics::units::Count::get(),
                "Number of times the request queue has become full"),
@@ -88,7 +89,7 @@ CXLMemory::CXLCtrlStats::CXLCtrlStats(CXLMemory &_cxlMemory)
 }
 
 Port & 
-CXLMemory::getPort(const std::string &if_name, PortID idx)
+CXLMemCtrl::getPort(const std::string &if_name, PortID idx)
 {
     if (if_name == "cxl_rsp_port")
         return cxlRspPort;
@@ -101,25 +102,59 @@ CXLMemory::getPort(const std::string &if_name, PortID idx)
 }
 
 void
-CXLMemory::init()
+CXLMemCtrl::init()
 {
-    if (!cxlRspPort.isConnected() || !memReqPort.isConnected())
+    if (!cxlRspPort.isConnected() || !memReqPort.isConnected()
+         || !pioPort.isConnected())
         panic("CXL port of %s not connected to anything!", name());
 
+    pioPort.sendRangeChange();
     cxlRspPort.sendRangeChange();
 }
 
-AddrRangeList
-CXLMemory::getAddrRanges() const
+Tick
+CXLMemCtrl::read(PacketPtr pkt)
 {
-    return PciDevice::getAddrRanges();
+    Addr addr = pkt->getAddr();
+    DPRINTF(CXLRange, "PIO read addr %#lx size %u\n",
+            addr, pkt->getSize());
+
+    pkt->setUintX(0, ByteOrder::little);
+    pkt->makeResponse();
+    return pioDelay;
+}
+
+Tick
+CXLMemCtrl::write(PacketPtr pkt)
+{
+    Addr addr = pkt->getAddr();
+    uint64_t data = pkt->getUintX(ByteOrder::little);
+
+    DPRINTF(CXLRange, "PIO write addr %#lx data %#lx\n",
+            addr, data);
+
+    pkt->makeResponse();
+    return pioDelay;
+}
+
+AddrRangeList
+CXLMemCtrl::getAddrRanges() const
+{
+    DPRINTF(CXLRange, "PIO base AddrRanges:\n");
+    AddrRangeList ranges = PciDevice::getAddrRanges();
+    for (const auto &r : ranges) {
+        DPRINTF(CXLRange,
+                "  range [%#lx - %#lx) size %#lx\n",
+                r.start(), r.end(), r.size());
+    }
+    return ranges;
 }
 
 bool
-CXLMemory::CXLResponsePort::respQueueFull() const
+CXLMemCtrl::CXLResponsePort::respQueueFull() const
 {
     if (outstandingResponses == respQueueLimit) {
-        cxlMemory.stats.rspQueFullEvents++;
+        ctrl.stats.rspQueFullEvents++;
         return true;
     } else {
         return false;
@@ -127,10 +162,10 @@ CXLMemory::CXLResponsePort::respQueueFull() const
 }
 
 bool
-CXLMemory::CXLRequestPort::reqQueueFull() const
+CXLMemCtrl::CXLRequestPort::reqQueueFull() const
 {
     if (transmitList.size() == reqQueueLimit) {
-        cxlMemory.stats.reqQueFullEvents++;
+        ctrl.stats.reqQueFullEvents++;
         return true;
     } else {
         return false;
@@ -138,21 +173,21 @@ CXLMemory::CXLRequestPort::reqQueueFull() const
 }
 
 bool
-CXLMemory::CXLRequestPort::recvTimingResp(PacketPtr pkt)
+CXLMemCtrl::CXLRequestPort::recvTimingResp(PacketPtr pkt)
 {
     // all checks are done when the request is accepted on the response
     // side, so we are guaranteed to have space for the response
-    DPRINTF(CXLMemory, "recvTimingResp: %s addr 0x%x\n",
+    DPRINTF(CXLMemCtrl, "recvTimingResp: %s addr 0x%x\n",
             pkt->cmdString(), pkt->getAddr());
 
-    DPRINTF(CXLMemory, "Request queue size: %d\n", transmitList.size());
+    DPRINTF(CXLMemCtrl, "Request queue size: %d\n", transmitList.size());
 
-    if (cxlMemory.preRspTick == -1) {
-        cxlMemory.preRspTick = cxlMemory.clockEdge();
+    if (ctrl.preRspTick == -1) {
+        ctrl.preRspTick = ctrl.clockEdge();
     } else {
-        cxlMemory.stats.memToCXLCtrlRsp.sample(
-            cxlMemory.ticksToCycles(cxlMemory.clockEdge() - cxlMemory.preRspTick));
-        cxlMemory.preRspTick = cxlMemory.clockEdge();
+        ctrl.stats.memToCXLCtrlRsp.sample(
+            ctrl.ticksToCycles(ctrl.clockEdge() - ctrl.preRspTick));
+        ctrl.preRspTick = ctrl.clockEdge();
     }
 
     // technically the packet only reaches us after the header delay,
@@ -160,16 +195,16 @@ CXLMemory::CXLRequestPort::recvTimingResp(PacketPtr pkt)
     Tick receive_delay = pkt->headerDelay + pkt->payloadDelay;
     pkt->headerDelay = pkt->payloadDelay = 0;
 
-    cxlRspPort.schedTimingResp(pkt, cxlMemory.clockEdge(protoProcLat) +
+    cxlRspPort.schedTimingResp(pkt, ctrl.clockEdge(protoProcLat) +
                               receive_delay);
 
     return true;
 }
 
 bool
-CXLMemory::CXLResponsePort::recvTimingReq(PacketPtr pkt)
+CXLMemCtrl::CXLResponsePort::recvTimingReq(PacketPtr pkt)
 {
-    DPRINTF(CXLMemory, "recvTimingReq: %s addr 0x%x\n",
+    DPRINTF(CXLMemCtrl, "recvTimingReq: %s addr 0x%x\n",
             pkt->cmdString(), pkt->getAddr());
 
     panic_if(pkt->cacheResponding(), "Should not see packets where cache "
@@ -178,29 +213,29 @@ CXLMemory::CXLResponsePort::recvTimingReq(PacketPtr pkt)
     if (retryReq)
         return false;
 
-    DPRINTF(CXLMemory, "Response queue size: %d outresp: %d\n",
+    DPRINTF(CXLMemCtrl, "Response queue size: %d outresp: %d\n",
             transmitList.size(), outstandingResponses);
 
     // if the request queue is full then there is no hope
     if (memReqPort.reqQueueFull()) {
-        DPRINTF(CXLMemory, "Request queue full\n");
+        DPRINTF(CXLMemCtrl, "Request queue full\n");
         retryReq = true;
     } else {
         // look at the response queue if we expect to see a response
         bool expects_response = pkt->needsResponse();
         if (expects_response) {
             if (respQueueFull()) {
-                DPRINTF(CXLMemory, "Response queue full\n");
+                DPRINTF(CXLMemCtrl, "Response queue full\n");
                 retryReq = true;
             } else {
                 // ok to send the request with space for the response
-                DPRINTF(CXLMemory, "Reserving space for response\n");
+                DPRINTF(CXLMemCtrl, "Reserving space for response\n");
                 assert(outstandingResponses != respQueueLimit);
                 ++outstandingResponses;
 
                 // no need to set retryReq to false as this is already the
                 // case
-                cxlMemory.stats.rspOutStandDist.sample(outstandingResponses);
+                ctrl.stats.rspOutStandDist.sample(outstandingResponses);
             }
         }
 
@@ -208,7 +243,7 @@ CXLMemory::CXLResponsePort::recvTimingReq(PacketPtr pkt)
             Tick receive_delay = pkt->headerDelay + pkt->payloadDelay;
             pkt->headerDelay = pkt->payloadDelay = 0;
 
-            memReqPort.schedTimingReq(pkt, cxlMemory.clockEdge(protoProcLat) +
+            memReqPort.schedTimingReq(pkt, ctrl.clockEdge(protoProcLat) +
                                       receive_delay);
         }
     }
@@ -221,48 +256,48 @@ CXLMemory::CXLResponsePort::recvTimingReq(PacketPtr pkt)
 }
 
 void
-CXLMemory::CXLResponsePort::retryStalledReq()
+CXLMemCtrl::CXLResponsePort::retryStalledReq()
 {
     if (retryReq) {
-        DPRINTF(CXLMemory, "Request waiting for retry, now retrying\n");
+        DPRINTF(CXLMemCtrl, "Request waiting for retry, now retrying\n");
         retryReq = false;
         sendRetryReq();
-        cxlMemory.stats.reqRetryCounts++;
+        ctrl.stats.reqRetryCounts++;
     }
 }
 
 void
-CXLMemory::CXLRequestPort::schedTimingReq(PacketPtr pkt, Tick when)
+CXLMemCtrl::CXLRequestPort::schedTimingReq(PacketPtr pkt, Tick when)
 {
     // If we're about to put this packet at the head of the queue, we
     // need to schedule an event to do the transmit.  Otherwise there
     // should already be an event scheduled for sending the head
     // packet.
     if (transmitList.empty()) {
-        cxlMemory.schedule(sendEvent, when);
+        ctrl.schedule(sendEvent, when);
     }
 
     assert(transmitList.size() != reqQueueLimit);
 
     transmitList.emplace_back(pkt, when);
 
-    cxlMemory.stats.reqQueueLenDist.sample(transmitList.size());
+    ctrl.stats.reqQueueLenDist.sample(transmitList.size());
 }
 
 void
-CXLMemory::CXLResponsePort::schedTimingResp(PacketPtr pkt, Tick when)
+CXLMemCtrl::CXLResponsePort::schedTimingResp(PacketPtr pkt, Tick when)
 {
     if (transmitList.empty()) {
-        cxlMemory.schedule(sendEvent, when);
+        ctrl.schedule(sendEvent, when);
     }
 
     transmitList.emplace_back(pkt, when);
 
-    cxlMemory.stats.rspQueueLenDist.sample(transmitList.size());
+    ctrl.stats.rspQueueLenDist.sample(transmitList.size());
 }
 
 void
-CXLMemory::CXLRequestPort::trySendTiming()
+CXLMemCtrl::CXLRequestPort::trySendTiming()
 {
     assert(!transmitList.empty());
 
@@ -272,25 +307,25 @@ CXLMemory::CXLRequestPort::trySendTiming()
 
     PacketPtr pkt = req.pkt;
 
-    DPRINTF(CXLMemory, "trySend request addr 0x%x, queue size %d\n",
+    DPRINTF(CXLMemCtrl, "trySend request addr 0x%x, queue size %d\n",
             pkt->getAddr(), transmitList.size());
 
     if (sendTimingReq(pkt)) {
         // send successful
-        cxlMemory.stats.reqSendSucceed++;
-        cxlMemory.stats.reqQueueLatDist.sample(curTick() - req.entryTime);
+        ctrl.stats.reqSendSucceed++;
+        ctrl.stats.reqQueueLatDist.sample(curTick() - req.entryTime);
 
         transmitList.pop_front();
 
-        cxlMemory.stats.reqQueueLenDist.sample(transmitList.size());
-        DPRINTF(CXLMemory, "trySend request successful\n");
+        ctrl.stats.reqQueueLenDist.sample(transmitList.size());
+        DPRINTF(CXLMemCtrl, "trySend request successful\n");
 
         // If there are more packets to send, schedule event to try again.
         if (!transmitList.empty()) {
             DeferredPacket next_req = transmitList.front();
-            DPRINTF(CXLMemory, "Scheduling next send\n");
-            cxlMemory.schedule(sendEvent, std::max(next_req.tick,
-                                                cxlMemory.clockEdge()));
+            DPRINTF(CXLMemCtrl, "Scheduling next send\n");
+            ctrl.schedule(sendEvent, std::max(next_req.tick,
+                                                ctrl.clockEdge()));
         }
 
         // if we have stalled a request due to a full request queue,
@@ -299,7 +334,7 @@ CXLMemory::CXLRequestPort::trySendTiming()
         // rather than the request queue we might stall it again
         cxlRspPort.retryStalledReq();
     } else {
-        cxlMemory.stats.reqSendFaild++;
+        ctrl.stats.reqSendFaild++;
     }
 
     // if the send failed, then we try again once we receive a retry,
@@ -307,7 +342,7 @@ CXLMemory::CXLRequestPort::trySendTiming()
 }
 
 void
-CXLMemory::CXLResponsePort::trySendTiming()
+CXLMemCtrl::CXLResponsePort::trySendTiming()
 {
     assert(!transmitList.empty());
 
@@ -317,43 +352,43 @@ CXLMemory::CXLResponsePort::trySendTiming()
 
     PacketPtr pkt = resp.pkt;
 
-    DPRINTF(CXLMemory, "trySend response addr 0x%x, outstanding %d\n",
+    DPRINTF(CXLMemCtrl, "trySend response addr 0x%x, outstanding %d\n",
             pkt->getAddr(), outstandingResponses);
 
     if (sendTimingResp(pkt)) {
         // send successful
-        cxlMemory.stats.rspSendSucceed++;
-        cxlMemory.stats.rspQueueLatDist.sample(curTick() - resp.entryTime);
+        ctrl.stats.rspSendSucceed++;
+        ctrl.stats.rspQueueLatDist.sample(curTick() - resp.entryTime);
 
         transmitList.pop_front();
 
-        cxlMemory.stats.rspQueueLenDist.sample(transmitList.size());
-        DPRINTF(CXLMemory, "trySend response successful\n");
+        ctrl.stats.rspQueueLenDist.sample(transmitList.size());
+        DPRINTF(CXLMemCtrl, "trySend response successful\n");
 
         assert(outstandingResponses != 0);
         --outstandingResponses;
 
-        cxlMemory.stats.rspOutStandDist.sample(outstandingResponses);
+        ctrl.stats.rspOutStandDist.sample(outstandingResponses);
 
         // If there are more packets to send, schedule event to try again.
         if (!transmitList.empty()) {
             DeferredPacket next_resp = transmitList.front();
-            DPRINTF(CXLMemory, "Scheduling next send\n");
-            cxlMemory.schedule(sendEvent, std::max(next_resp.tick,
-                                                cxlMemory.clockEdge()));
+            DPRINTF(CXLMemCtrl, "Scheduling next send\n");
+            ctrl.schedule(sendEvent, std::max(next_resp.tick,
+                                                ctrl.clockEdge()));
         }
 
         // if there is space in the request queue and we were stalling
         // a request, it will definitely be possible to accept it now
         // since there is guaranteed space in the response queue
         if (!memReqPort.reqQueueFull() && retryReq) {
-            DPRINTF(CXLMemory, "Request waiting for retry, now retrying\n");
+            DPRINTF(CXLMemCtrl, "Request waiting for retry, now retrying\n");
             retryReq = false;
             sendRetryReq();
-            cxlMemory.stats.reqRetryCounts++;
+            ctrl.stats.reqRetryCounts++;
         }
     } else {
-        cxlMemory.stats.rspSendFaild++;
+        ctrl.stats.rspSendFaild++;
     }
 
     // if the send failed, then we try again once we receive a retry,
@@ -361,21 +396,21 @@ CXLMemory::CXLResponsePort::trySendTiming()
 }
 
 void
-CXLMemory::CXLRequestPort::recvReqRetry()
+CXLMemCtrl::CXLRequestPort::recvReqRetry()
 {
     trySendTiming();
 }
 
 void
-CXLMemory::CXLResponsePort::recvRespRetry()
+CXLMemCtrl::CXLResponsePort::recvRespRetry()
 {
     trySendTiming();
 }
 
 Tick
-CXLMemory::CXLResponsePort::recvAtomic(PacketPtr pkt)
+CXLMemCtrl::CXLResponsePort::recvAtomic(PacketPtr pkt)
 {
-    DPRINTF(CXLMemory, "CXLMemory recvAtomic: %s AddrRange: %s\n",
+    DPRINTF(CXLMemCtrl, "CXLMemCtrl recvAtomic: %s AddrRange: %s\n",
             pkt->cmdString(), pkt->getAddrRange().to_string());
     panic_if(pkt->cacheResponding(), "Should not see packets where cache "
              "is responding");
@@ -384,23 +419,23 @@ CXLMemory::CXLResponsePort::recvAtomic(PacketPtr pkt)
 
     Tick access_delay = memReqPort.sendAtomic(pkt);
 
-    DPRINTF(CXLMemory, "access_delay=%ld, proto_proc_lat=%ld, total=%ld\n",
-            access_delay, delay, delay * cxlMemory.clockPeriod() + access_delay);
-    return delay * cxlMemory.clockPeriod() + access_delay;
+    DPRINTF(CXLMemCtrl, "access_delay=%ld, proto_proc_lat=%ld, total=%ld\n",
+            access_delay, delay, delay * ctrl.clockPeriod() + access_delay);
+    return delay * ctrl.clockPeriod() + access_delay;
 }
 
 Tick
-CXLMemory::CXLResponsePort::recvAtomicBackdoor(
+CXLMemCtrl::CXLResponsePort::recvAtomicBackdoor(
     PacketPtr pkt, MemBackdoorPtr &backdoor)
 {
     Cycles delay = processCXLMem(pkt);
 
-    return delay * cxlMemory.clockPeriod() + memReqPort.sendAtomicBackdoor(
+    return delay * ctrl.clockPeriod() + memReqPort.sendAtomicBackdoor(
         pkt, backdoor);
 }
 
 Cycles
-CXLMemory::CXLResponsePort::processCXLMem(PacketPtr pkt) {
+CXLMemCtrl::CXLResponsePort::processCXLMem(PacketPtr pkt) {
     if (pkt->cxl_cmd == MemCmd::M2SReq) {
         assert(pkt->isRead());
     } else if (pkt->cxl_cmd == MemCmd::M2SRwD) {
@@ -410,9 +445,20 @@ CXLMemory::CXLResponsePort::processCXLMem(PacketPtr pkt) {
 }
 
 AddrRangeList
-CXLMemory::CXLResponsePort::getAddrRanges() const {
-    AddrRangeList ranges = cxlMemory.getAddrRanges();
-    ranges.push_back(cxlMemRange);
+CXLMemCtrl::CXLResponsePort::getAddrRanges() const
+{
+    AddrRangeList ranges;
+    ranges.push_back(devMemRange);
+    DPRINTF(CXLRange, "CXLResponsePort base AddrRanges:\n");
+    for (const auto &r : ranges) {
+        DPRINTF(CXLRange,
+                "  range [%#lx - %#lx) size %#lx\n",
+                r.start(), r.end(), r.size());
+    }
+
+    DPRINTF(CXLRange,
+            "CXLResponsePort adds devMemRange [%#lx - %#lx) size %#lx\n",
+            devMemRange.start(), devMemRange.end(), devMemRange.size());
     return ranges;
 }
 

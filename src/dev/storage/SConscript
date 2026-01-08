@@ -42,15 +42,12 @@ Import('*')
 
 # Controllers
 SimObject('Ide.py', sim_objects=['IdeDisk', 'IdeController'], enums=['IdeID'])
-SimObject('CXLMemory.py', sim_objects=['CXLMemory'])
 
 Source('ide_ctrl.cc')
 Source('ide_disk.cc')
-Source('cxl_memory.cc')
 
 DebugFlag('IdeCtrl')
 DebugFlag('IdeDisk')
-DebugFlag('CXLMemory')
 
 # Disk models
 SimObject('DiskImage.py', sim_objects=[

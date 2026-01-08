@@ -486,7 +486,7 @@ def connectX86ClassicSystem(x86_sys, numCPUs, cxl_mem_size):
         AddrRange(IO_address_space_base, interrupts_address_space_base - 1),
         AddrRange(pci_config_address_space_base, Addr.max),
     ]
-    x86_sys.pc.south_bridge.cxlmemory.cxl_mem_range = AddrRange(cxl_mem_start, cxl_mem_end)
+    x86_sys.pc.south_bridge.cxl_mem_ctrl.cxl_mem_range = AddrRange(cxl_mem_start, cxl_mem_end)
 
     # Create a bridge from the IO bus to the memory bus to allow access to
     # the local APIC (two pages)

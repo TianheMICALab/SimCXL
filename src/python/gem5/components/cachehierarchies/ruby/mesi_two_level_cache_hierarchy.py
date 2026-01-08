@@ -152,6 +152,10 @@ class MESITwoLevelCacheHierarchy(
             Directory(self.ruby_system.network, cache_line_size, range, port)
             for range, port in board.get_mem_ports()
         ]
+        cxl_device = board.pc.south_bridge.cxl_mem_ctrl
+        self._directory_controllers.append(Directory(self.ruby_system.network, 
+            cache_line_size, cxl_device.cxl_mem_range, cxl_device.cxl_rsp_port))
+
         # TODO: Make this prettier: The problem is not being able to proxy
         # the ruby system correctly
         for dir in self._directory_controllers:

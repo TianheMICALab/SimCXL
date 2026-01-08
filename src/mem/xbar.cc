@@ -333,6 +333,11 @@ BaseXBar::Layer<SrcType, DstType>::recvRetry()
 PortID
 BaseXBar::findPort(AddrRange addr_range, PacketPtr pkt)
 {
+
+    if (!gotAllAddrRanges) {
+    fatal("XBar %s received request before all addr ranges were collected\n",
+          name());
+    }
     // we should never see any address lookups before we've got the
     // ranges of all connected CPU-side-port modules
     assert(gotAllAddrRanges);
