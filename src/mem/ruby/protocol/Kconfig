@@ -27,6 +27,7 @@ config PROTOCOL
     default "GPU_VIPER" if RUBY_PROTOCOL_GPU_VIPER
     default "MOESI_AMD_Base" if RUBY_PROTOCOL_MOESI_AMD_BASE
     default "MESI_Two_Level" if RUBY_PROTOCOL_MESI_TWO_LEVEL
+    default "CXL_MESI_Two_Level" if RUBY_PROTOCOL_CXL_MESI_TWO_LEVEL
     default "MESI_Three_Level" if RUBY_PROTOCOL_MESI_THREE_LEVEL
     default "MESI_Three_Level_HTM" if RUBY_PROTOCOL_MESI_THREE_LEVEL_HTM
     default "MI_example" if RUBY_PROTOCOL_MI_EXAMPLE
@@ -43,6 +44,8 @@ cont_choice "Ruby protocol"
         bool "MOESI AMD base"
     config RUBY_PROTOCOL_MESI_TWO_LEVEL
         bool "MESI two level"
+    config RUBY_PROTOCOL_CXL_MESI_TWO_LEVEL
+        bool "CXL MESI two level"
     config RUBY_PROTOCOL_MESI_THREE_LEVEL
         bool "MESI three level"
     config RUBY_PROTOCOL_MESI_THREE_LEVEL_HTM

@@ -1,5 +1,5 @@
 # Copyright (c) 2021 The Regents of the University of California
-# All rights reserved.
+# All Rights Reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -24,46 +24,20 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from abc import ABCMeta
+from ......utils.override import overrides
+from ..abstract_dma_controller import AbstractDMAController
 
-from m5.objects import (
-    SimObject,
-    System,
-)
-
-from ...utils.override import overrides
-from .abstract_board import AbstractBoard
+from m5.objects import MessageBuffer
 
 
-class AbstractSystemBoard(System, AbstractBoard):
+class DMAController(AbstractDMAController):
+    def __init__(self, network, cache_line_size):
+        super().__init__(network, cache_line_size)
 
-    """
-    An abstract board for cases where boards should inherit from System.
-    """
-
-    __metaclass__ = ABCMeta
-
-    def __init__(
-        self,
-        clk_freq: str,
-        processor: "AbstractProcessor",
-        memory: "AbstractMemorySystem",
-        cache_hierarchy: "AbstractCacheHierarchy",
-    ):
-        System.__init__(self)
-        AbstractBoard.__init__(
-            self,
-            clk_freq=clk_freq,
-            processor=processor,
-            memory=memory,
-            cache_hierarchy=cache_hierarchy,
-        )
-
-    @overrides(SimObject)
-    def createCCObject(self):
-        """We override this function as it is called in ``m5.instantiate``. This
-        means we can insert a check to ensure the ``_connect_things`` function
-        has been run.
-        """
-        super()._connect_things_check()
-        super().createCCObject()
+    @overrides(AbstractDMAController)
+    def connectQueues(self, network):
+        self.mandatoryQueue = MessageBuffer()
+        self.responseFromDir = MessageBuffer(ordered=True)
+        self.responseFromDir.in_port = network.out_port
+        self.requestToDir = MessageBuffer()
+        self.requestToDir.out_port = network.in_port

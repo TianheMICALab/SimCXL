@@ -43,3 +43,4 @@ class CoherenceProtocol(Enum):
     MI_EXAMPLE = 9
     GPU_VIPER = 10
     CHI = 11
+    CXL_MESI_TWO_LEVEL = 12

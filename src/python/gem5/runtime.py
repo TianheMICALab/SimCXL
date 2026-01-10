@@ -73,6 +73,7 @@ def get_runtime_coherence_protocol() -> CoherenceProtocol:
         "garnet_standalone": CoherenceProtocol.GARNET_STANDALONE,
         "moesi_cmp_token": CoherenceProtocol.MOESI_CMP_TOKEN,
         "mesi_two_level": CoherenceProtocol.MESI_TWO_LEVEL,
+        "cxl_mesi_two_level": CoherenceProtocol.CXL_MESI_TWO_LEVEL,
         "moesi_amd_base": CoherenceProtocol.MOESI_AMD_BASE,
         "mesi_three_level_htm": CoherenceProtocol.MESI_THREE_LEVEL_HTM,
         "mesi_three_level": CoherenceProtocol.MESI_THREE_LEVEL,

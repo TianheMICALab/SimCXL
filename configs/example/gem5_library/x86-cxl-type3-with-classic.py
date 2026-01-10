@@ -36,7 +36,7 @@ Usage
 -----
 
 ```
-scons build/X86/gem5.opt -j16
+scons build/X86/gem5.opt -j21
 ./build/X86/gem5.opt configs/example/gem5_library/x86-cxl-run.py
 ```
 """
@@ -93,10 +93,9 @@ cache_hierarchy = PrivateL1PrivateL2SharedL3CacheHierarchy(
 
 # Setup system memory and CXL memory
 memory = DIMM_DDR5_4400(size="3GB")
-if args.is_asic == 'True':
-    cxl_memory = DIMM_DDR5_4400(size="8GB")
-else:
-    cxl_memory = SingleChannelDDR4_3200(size="8GB")
+cxl_dram = DIMM_DDR5_4400(size="8GB")
+if args.is_asic == 'False':
+    cxl_dram = SingleChannelDDR4_3200(size="8GB")
 
 # Setup Processor
 # Using KVM for fast boot, then switching to Timing/O3
@@ -118,7 +117,7 @@ board = X86Board(
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
-    cxl_memory=cxl_memory,
+    cxl_memory=cxl_dram,
     is_asic=(args.is_asic == 'True')
 )
 

@@ -39,7 +39,6 @@ from m5.objects.X86Ide import X86IdeController
 from m5.params import *
 from m5.proxy import *
 from m5.SimObject import SimObject
-from m5.objects.CXLDevice import CXLMemCtrl
 
 
 def x86IOAddress(port):
@@ -79,8 +78,8 @@ class SouthBridge(SimObject):
 
     # IDE controller
     ide = X86IdeController(disks=[], pci_func=0, pci_dev=4, pci_bus=0)
-    # CXLMemCtrl
-    cxl_mem_ctrl = CXLMemCtrl(pci_func=0, pci_dev=6, pci_bus=0)
+    # CXLDevice
+    # cxl_device = Param.PciDevice(NULL, "CXL Type-1/2/3 Device")
 
     def attachIO(self, bus, dma_ports):
         # Route interrupt signals
@@ -102,12 +101,14 @@ class SouthBridge(SimObject):
         self.cmos.pio = bus.mem_side_ports
         self.dma1.pio = bus.mem_side_ports
         self.ide.pio = bus.mem_side_ports
-        self.cxl_mem_ctrl.pio = bus.mem_side_ports
         if dma_ports.count(self.ide.dma) == 0:
             self.ide.dma = bus.cpu_side_ports
-        if dma_ports.count(self.cxl_mem_ctrl.dma) == 0:
-            self.cxl_mem_ctrl.dma = bus.cpu_side_ports
-            self.cxl_mem_ctrl.cxl_rsp_port = bus.mem_side_ports
+        # cxl_device is dynamically initialized and attached in x86_board.py
+        self.cxl_device.pio = bus.mem_side_ports
+        if dma_ports.count(self.cxl_device.dma) == 0:
+            self.cxl_device.dma = bus.cpu_side_ports
+            if hasattr(self.cxl_device, 'cxl_rsp_port'):
+                self.cxl_device.cxl_rsp_port = bus.mem_side_ports
         self.keyboard.pio = bus.mem_side_ports
         self.pic1.pio = bus.mem_side_ports
         self.pic2.pio = bus.mem_side_ports

@@ -32,20 +32,21 @@ from m5.objects import (
     RubySystem,
 )
 
+from .abstract_ruby_cache_hierarchy import AbstractRubyCacheHierarchy
+from ..abstract_two_level_cache_hierarchy import AbstractTwoLevelCacheHierarchy
 from ....coherence_protocol import CoherenceProtocol
 from ....isas import ISA
-from ....utils.requires import requires
 from ...boards.abstract_board import AbstractBoard
-from ..abstract_two_level_cache_hierarchy import AbstractTwoLevelCacheHierarchy
-from .abstract_ruby_cache_hierarchy import AbstractRubyCacheHierarchy
-from .caches.mesi_two_level.directory import Directory
-from .caches.mesi_two_level.dma_controller import DMAController
-from .caches.mesi_two_level.l1_cache import L1Cache
-from .caches.mesi_two_level.l2_cache import L2Cache
+from ....utils.requires import requires
+
 from .topologies.simple_pt2pt import SimplePt2Pt
+from .caches.cxl_mesi_two_level.l1_cache import L1Cache
+from .caches.cxl_mesi_two_level.l2_cache import L2Cache
+from .caches.cxl_mesi_two_level.directory import Directory
+from .caches.cxl_mesi_two_level.dma_controller import DMAController
 
 
-class MESITwoLevelCacheHierarchy(
+class CXLMESITwoLevelCacheHierarchy(
     AbstractRubyCacheHierarchy, AbstractTwoLevelCacheHierarchy
 ):
     """A two level private L1 shared L2 MESI hierarchy.
@@ -80,35 +81,41 @@ class MESITwoLevelCacheHierarchy(
         self._num_l2_banks = num_l2_banks
 
     def incorporate_cache(self, board: AbstractBoard) -> None:
-        requires(coherence_protocol_required=CoherenceProtocol.MESI_TWO_LEVEL)
+
+        requires(coherence_protocol_required=CoherenceProtocol.CXL_MESI_TWO_LEVEL)
 
         cache_line_size = board.get_cache_line_size()
 
         self.ruby_system = RubySystem()
 
-        # MESI_Two_Level needs 3 virtual networks
-        self.ruby_system.number_of_virtual_networks = 3
+        # MESI_Two_Level needs 5 virtual networks
+        self.ruby_system.number_of_virtual_networks = 6
 
         self.ruby_system.network = SimplePt2Pt(self.ruby_system)
-        self.ruby_system.network.number_of_virtual_networks = 3
+        self.ruby_system.network.number_of_virtual_networks = 6
 
         self._l1_controllers = []
         for i, core in enumerate(board.get_processor().get_cores()):
+            send_evictions = core.requires_send_evicts()
             cache = L1Cache(
                 self._l1i_size,
                 self._l1i_assoc,
                 self._l1d_size,
                 self._l1d_assoc,
                 self.ruby_system.network,
-                core,
+                # core,
+                send_evictions,
                 self._num_l2_banks,
                 cache_line_size,
                 board.processor.get_isa(),
                 board.get_clock_domain(),
+                mandatory_queue_latency=50,
             )
 
             cache.sequencer = RubySequencer(
-                version=i, dcache=cache.L1Dcache, clk_domain=cache.clk_domain
+                version=i,
+                dcache=cache.L1Dcache,
+                clk_domain=cache.clk_domain
             )
 
             if board.has_io_bus():
@@ -133,6 +140,33 @@ class MESITwoLevelCacheHierarchy(
 
             self._l1_controllers.append(cache)
 
+        cxl_cache = L1Cache(
+            self._l1i_size,
+            self._l1i_assoc,
+            self._l1d_size,
+            self._l1d_assoc,
+            self.ruby_system.network,
+            False,
+            self._num_l2_banks,
+            cache_line_size,
+            board.processor.get_isa(),
+            board.get_clock_domain(),
+            l1_request_latency=16,
+            l1_response_latency=16,
+            mandatory_queue_latency=100
+        )
+        cxl_cache.sequencer = RubySequencer(
+            version=len(self._l1_controllers),
+            dcache=cxl_cache.L1Dcache,
+            clk_domain=cxl_cache.clk_domain,
+            max_outstanding_requests=32,
+        )
+        cxl_cache.ruby_system = self.ruby_system
+
+        board.pc.south_bridge.cxl_device.connectCachedPorts(cxl_cache.sequencer.in_ports)
+
+        self._l1_controllers.append(cxl_cache)
+
         self._l2_controllers = [
             L2Cache(
                 self._l2_size,
@@ -140,6 +174,9 @@ class MESITwoLevelCacheHierarchy(
                 self.ruby_system.network,
                 self._num_l2_banks,
                 cache_line_size,
+                l2_request_latency = 50,
+                l2_response_latency = 200,
+                to_l1_latency = 200,
             )
             for _ in range(self._num_l2_banks)
         ]
@@ -152,10 +189,6 @@ class MESITwoLevelCacheHierarchy(
             Directory(self.ruby_system.network, cache_line_size, range, port)
             for range, port in board.get_mem_ports()
         ]
-        cxl_mem_ctrl = board.pc.south_bridge.cxl_device
-        self._directory_controllers.append(Directory(self.ruby_system.network, 
-            cache_line_size, cxl_mem_ctrl.cxl_mem_range, cxl_mem_ctrl.cxl_rsp_port))
-
         # TODO: Make this prettier: The problem is not being able to proxy
         # the ruby system correctly
         for dir in self._directory_controllers:

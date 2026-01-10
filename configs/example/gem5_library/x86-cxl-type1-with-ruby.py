@@ -26,9 +26,9 @@
 
 """
 
-This script shows an example of running a CXL type-3 memory expander simulation
-using the gem5 library with the Ruby memory system. It defaults to simulating
-a CXL ASIC Device.
+This script shows an example of running a CXL type-1 accelerator(LSU) without memory
+simulation using the gem5 library. It uses the Ruby memory system configured 
+with the CXL_MESI_TWO_LEVEL protocol.
 This simulation boots Ubuntu 18.04 using KVM CPU cores (switching from Atomic/KVM).
 The simulation then switches to TIMING/O3 CPU core to run the benchmark.
 
@@ -36,17 +36,20 @@ Usage
 -----
 
 ```
-scons build/X86/gem5.opt -j21
-sudo ./build/X86/gem5.opt configs/example/gem5_library/x86-cxl-type3-run-ruby.py
+first compile config path
+scons defconfig build/X86_CXL_MESI build_opts/X86
+scons setconfig build/X86_CXL_MESI RUBY_PROTOCOL_CXL_MESI_TWO_LEVEL=y
+
+scons build/X86_CXL_MESI/gem5.opt -j21
+sudo ./build/X86_CXL_MESI/gem5.opt configs/example/gem5_library/x86-cxl-type1-with-ruby.py
 ```
 """
 
-import m5
 from gem5.utils.requires import requires
 from gem5.coherence_protocol import CoherenceProtocol
-from gem5.components.boards.x86_board import X86Board
-from gem5.components.cachehierarchies.ruby.mesi_two_level_cache_hierarchy import (
-    MESITwoLevelCacheHierarchy,
+from gem5.components.boards.x86_board_cxl_type1 import X86BoardCXLType1
+from gem5.components.cachehierarchies.ruby.cxl_mesi_two_level_cache_hierarchy import (
+    CXLMESITwoLevelCacheHierarchy,
 )
 from gem5.components.memory.single_channel import DIMM_DDR5_4400
 from gem5.components.processors.cpu_types import CPUTypes
@@ -56,20 +59,20 @@ from gem5.components.processors.simple_switchable_processor import (
 from gem5.isas import ISA
 from gem5.simulate.exit_event import ExitEvent
 from gem5.simulate.simulator import Simulator
-from gem5.resources.resource import DiskImageResource, KernelResource
+from gem5.resources.resource import KernelResource, DiskImageResource
 
 
 # This simulation requires using KVM with gem5 compiled for X86 simulation
-# and with MESI_Two_Level cache coherence protocol.
+# and with CXL_MESI_TWO_LEVEL cache coherence protocol.
 requires(
     isa_required=ISA.X86,
-    coherence_protocol_required=CoherenceProtocol.MESI_TWO_LEVEL,
+    coherence_protocol_required=CoherenceProtocol.CXL_MESI_TWO_LEVEL,
     kvm_required=True,
 )
 
 # Setup Cache Hierarchy (Ruby MESI Two Level)
-cache_hierarchy = MESITwoLevelCacheHierarchy(
-    l1d_size="32KiB",
+cache_hierarchy = CXLMESITwoLevelCacheHierarchy(
+    l1d_size="128KiB",
     l1d_assoc=8,
     l1i_size="32KiB",
     l1i_assoc=8,
@@ -78,9 +81,8 @@ cache_hierarchy = MESITwoLevelCacheHierarchy(
     num_l2_banks=1,
 )
 
-# Setup system memory and CXL memory
+# Setup system memory
 memory = DIMM_DDR5_4400(size="3GiB")
-cxl_dram = DIMM_DDR5_4400(size="8GB")
 
 # This is a switchable CPU. We first boot Ubuntu using KVM, then the guest
 # will exit the simulation by calling "m5 exit" (see the `command` variable
@@ -100,13 +102,14 @@ for proc in processor.start:
     proc.core.usePerf = False
 
 # Here we setup the board. The X86Board allows for Full-System X86 simulations.
-board = X86Board(
+board = X86BoardCXLType1(
     clk_freq="2.4GHz",
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
-    cxl_memory=cxl_dram,
-    is_asic=True
+    lsu_mode=2,   # 1: single-point access; 2: sequential access; 3: random access
+    lsu_num=256,  # Number of LSU sending requests to the host (bytes)
+    load_store=1, # 1: load, 2: store
 )
 
 # Here we set the Full System workload.
@@ -121,15 +124,13 @@ board = X86Board(
 # output.
 command = (
     "m5 exit;"
-    + "numactl -H;"
-    + "m5 resetstats;"
-    + "numactl -N 0 -m 1 /home/test_code/simple_test;"
-    # + "/home/cxl_benchmark/lmbench_cxl.sh;"
+    + "echo 'This is running on Timing CPU cores.';"
+    + "../home/test_code/LSU_test;"
+    + "m5 exit;"
 )
 
-# Please modify the paths of kernel and disk_image according to the location of your files.
 board.set_kernel_disk_workload(
-    kernel=KernelResource(local_path='/home/wyj/code/fs_image/vmlinux_numa'),
+    kernel=KernelResource(local_path='/home/wyj/code/fs_image/vmlinux-6.12'),
     disk_image=DiskImageResource(local_path='/home/wyj/code/fs_image/parsec.img'),
     readfile_contents=command,
 )
@@ -144,10 +145,5 @@ simulator = Simulator(
         ExitEvent.EXIT: (func() for func in [processor.switch])
     },
 )
-
-print("Running the simulation with Ruby MESI Two Level protocol...")
-print("Using KVM cpu for boot")
-
-m5.stats.reset()
 
 simulator.run()

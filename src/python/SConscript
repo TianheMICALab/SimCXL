@@ -50,6 +50,7 @@ PySource('gem5.components.boards.experimental',
 PySource('gem5.components.boards', 'gem5/components/boards/simple_board.py')
 PySource('gem5.components.boards', 'gem5/components/boards/test_board.py')
 PySource('gem5.components.boards', 'gem5/components/boards/x86_board.py')
+PySource('gem5.components.boards', 'gem5/components/boards/x86_board_cxl_type1.py')
 PySource('gem5.components.boards', 'gem5/components/boards/arm_board.py')
 PySource('gem5.components.boards',
     "gem5/components/boards/kernel_disk_workload.py")
@@ -116,6 +117,8 @@ PySource('gem5.components.cachehierarchies.ruby',
 PySource('gem5.components.cachehierarchies.ruby',
     'gem5/components/cachehierarchies/ruby/mesi_two_level_cache_hierarchy.py')
 PySource('gem5.components.cachehierarchies.ruby',
+    'gem5/components/cachehierarchies/ruby/cxl_mesi_two_level_cache_hierarchy.py')
+PySource('gem5.components.cachehierarchies.ruby',
     'gem5/components/cachehierarchies/ruby/'
     'mesi_three_level_cache_hierarchy.py')
 PySource('gem5.components.cachehierarchies.ruby',
@@ -141,6 +144,17 @@ PySource('gem5.components.cachehierarchies.ruby.caches.mesi_two_level',
     'gem5/components/cachehierarchies/ruby/caches/mesi_two_level/l1_cache.py')
 PySource('gem5.components.cachehierarchies.ruby.caches.mesi_two_level',
     'gem5/components/cachehierarchies/ruby/caches/mesi_two_level/l2_cache.py')
+PySource('gem5.components.cachehierarchies.ruby.caches.cxl_mesi_two_level',
+    'gem5/components/cachehierarchies/ruby/caches/cxl_mesi_two_level/__init__.py')
+PySource('gem5.components.cachehierarchies.ruby.caches.cxl_mesi_two_level',
+    'gem5/components/cachehierarchies/ruby/caches/cxl_mesi_two_level/directory.py')
+PySource('gem5.components.cachehierarchies.ruby.caches.cxl_mesi_two_level',
+    'gem5/components/cachehierarchies/ruby/caches/cxl_mesi_two_level/'
+    'dma_controller.py')
+PySource('gem5.components.cachehierarchies.ruby.caches.cxl_mesi_two_level',
+    'gem5/components/cachehierarchies/ruby/caches/cxl_mesi_two_level/l1_cache.py')
+PySource('gem5.components.cachehierarchies.ruby.caches.cxl_mesi_two_level',
+    'gem5/components/cachehierarchies/ruby/caches/cxl_mesi_two_level/l2_cache.py')
 PySource('gem5.components.cachehierarchies.ruby.caches.mesi_three_level',
     'gem5/components/cachehierarchies/ruby/caches/mesi_three_level/'
     '__init__.py')
