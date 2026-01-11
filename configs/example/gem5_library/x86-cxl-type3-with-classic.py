@@ -26,7 +26,7 @@
 
 """
 
-This script shows an example of running a CXL type-3 memory expander simulation
+This script shows an example of running a CXL type 3 memory expander simulation
 using the gem5 library with the Classic memory system. It defaults to simulating
 a CXL ASIC Device.
 This simulation boots Ubuntu 18.04 using KVM CPU cores (switching from Atomic/KVM).

@@ -1,3 +1,8 @@
+#ifndef __DEV_X86_CXL_TYPE1_ACCEL_HH__
+#define __DEV_X86_CXL_TYPE1_ACCEL_HH__
+
+#include <vector>
+
 #include "base/addr_range.hh"
 #include "base/trace.hh"
 #include "base/types.hh"
@@ -6,13 +11,15 @@
 #include "mem/packet_access.hh"
 #include "params/CXLType1Accel.hh"
 #include "dev/pci/device.hh"
-#include <vector>
+
 
 namespace gem5
 {
-class CXLType1Accel : public PciDevice {
+
+class CXLType1Accel : public PciDevice 
+{
     private:
-        struct item{
+        struct item {
             unsigned long phy;
             int num;
             item() : phy(0), num(0) {}
@@ -212,4 +219,7 @@ class CXLType1Accel : public PciDevice {
         void recvData(PacketPtr pkt);
         void LSUFinish();
 };
+
 } // namespace gem5
+
+#endif // __DEV_X86_CXL_TYPE1_ACCEL_HH__

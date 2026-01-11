@@ -151,15 +151,15 @@ class CXLMESITwoLevelCacheHierarchy(
             cache_line_size,
             board.processor.get_isa(),
             board.get_clock_domain(),
-            l1_request_latency=16,
-            l1_response_latency=16,
-            mandatory_queue_latency=100
+            l1_request_latency=544,
+            l1_response_latency=544,
+            mandatory_queue_latency=276
         )
         cxl_cache.sequencer = RubySequencer(
             version=len(self._l1_controllers),
             dcache=cxl_cache.L1Dcache,
             clk_domain=cxl_cache.clk_domain,
-            max_outstanding_requests=32,
+            max_outstanding_requests=180,
         )
         cxl_cache.ruby_system = self.ruby_system
 
@@ -174,9 +174,9 @@ class CXLMESITwoLevelCacheHierarchy(
                 self.ruby_system.network,
                 self._num_l2_banks,
                 cache_line_size,
-                l2_request_latency = 50,
+                l2_request_latency = 300,
                 l2_response_latency = 200,
-                to_l1_latency = 200,
+                to_l1_latency = 300,
             )
             for _ in range(self._num_l2_banks)
         ]
@@ -189,6 +189,11 @@ class CXLMESITwoLevelCacheHierarchy(
             Directory(self.ruby_system.network, cache_line_size, range, port)
             for range, port in board.get_mem_ports()
         ]
+        cxl_accel = board.pc.south_bridge.cxl_device
+        if hasattr(cxl_accel, 'cxl_rsp_port'):
+            self._directory_controllers.append(Directory(self.ruby_system.network, 
+                cache_line_size, cxl_accel.cxl_mem_range, cxl_accel.cxl_rsp_port))
+
         # TODO: Make this prettier: The problem is not being able to proxy
         # the ruby system correctly
         for dir in self._directory_controllers:

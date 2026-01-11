@@ -583,6 +583,117 @@ class DmaReadFifo : public Drainable, public Serializable
     std::deque<DmaDoneEventUPtr> freeRequests;
 };
 
+
+/**
+ * Buffered DMA write engine
+ * 
+ * This class implements a DMA engine that drains a FIFO buffer to host memory.
+ * The FIFO buffer size, maximum request size, and maximum pending requests
+ * are configurable.
+ */
+class DmaWriteFifo : public Drainable, public Serializable
+{
+  public:
+    DmaWriteFifo(DmaPort &port, size_t size,
+                 unsigned max_req_size,
+                 unsigned max_pending,
+                 Request::Flags flags = 0);
+
+    ~DmaWriteFifo();
+
+  public: // Serializable
+    void serialize(CheckpointOut &cp) const override;
+    void unserialize(CheckpointIn &cp) override;
+
+  public: // Drainable
+    DrainState drain() override;
+
+  public:
+    bool tryPut(const uint8_t *src, size_t len);
+    
+    template<typename T>
+    bool
+    tryPut(T value)
+    {
+        return tryPut(reinterpret_cast<const uint8_t*>(&value), sizeof(T));
+    }
+
+    void put(const uint8_t *src, size_t len);
+    
+    template<typename T>
+    void
+    put(T value)
+    {
+        put(reinterpret_cast<const uint8_t*>(&value), sizeof(T));
+    }
+
+    size_t size() const { return buffer.size(); }
+    size_t capacity() const { return buffer.capacity(); }
+    void flush() { buffer.flush(); }
+    
+
+  public:
+    void startWrite(Addr start, size_t size);
+    void stopWrite();
+    bool atEndOfBlock() const { return nextAddr == endAddr; }
+    
+    bool
+    isActive() const
+    {
+        return !(pendingRequests.empty() && buffer.empty() && atEndOfBlock());
+    }
+
+  protected: // Callbacks
+    virtual void onEndOfBlock() {};
+    virtual void onIdle() {};
+
+  private: // Configuration
+    const Addr maxReqSize;
+    const size_t fifoSize;
+    const Request::Flags reqFlags;
+    DmaPort &port;
+    const Addr cacheLineSize;
+
+  private: // Event handling
+    class DmaDoneEvent : public Event
+    {
+      public:
+        DmaDoneEvent(DmaWriteFifo *_parent, size_t max_size);
+        void kill();
+        void cancel();
+        bool canceled() const { return _canceled; }
+        void reset(const uint8_t *src, size_t size, Addr addr);
+        void process();
+
+        bool done() const { return _done; }
+        Addr address() const { return _addr; }
+        size_t requestSize() const { return _size; }
+
+      private:
+        DmaWriteFifo *parent;
+        bool _done = false;
+        bool _canceled = false;
+        size_t _size;
+        Addr _addr;
+        std::vector<uint8_t> _data;
+    };
+
+    typedef std::unique_ptr<DmaDoneEvent> DmaDoneEventUPtr;
+
+    void dmaDone();
+    void handlePending();
+    void resumeWrite();
+    void resumeWriteTiming();
+    void resumeWriteBypass();
+
+  private: // State
+    Fifo<uint8_t> buffer;
+    Addr nextAddr = 0;
+    Addr endAddr = 0;
+    std::deque<DmaDoneEventUPtr> pendingRequests;
+    std::deque<DmaDoneEventUPtr> freeRequests;
+};
+
 } // namespace gem5
 
 #endif // __DEV_DMA_DEVICE_HH__

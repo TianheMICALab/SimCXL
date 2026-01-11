@@ -656,4 +656,205 @@ DmaReadFifo::DmaDoneEvent::process()
     parent->dmaDone();
 }
 
+
+DmaWriteFifo::DmaWriteFifo(DmaPort &_port, size_t size,
+                           unsigned max_req_size,
+                           unsigned max_pending,
+                           Request::Flags flags)
+    : maxReqSize(max_req_size), fifoSize(size),
+      reqFlags(flags), port(_port), 
+      cacheLineSize(port.sys->cacheLineSize()),
+      buffer(size)
+{
+    freeRequests.resize(max_pending);
+    for (auto &e : freeRequests)
+        e.reset(new DmaDoneEvent(this, max_req_size));
+}
+
+DmaWriteFifo::~DmaWriteFifo()
+{
+    for (auto &p : pendingRequests) {
+        DmaDoneEvent *e(p.release());
+        if (e->done()) {
+            delete e;
+        } else {
+            e->kill();
+        }
+    }
+}
+
+// Serialization/Deserialization
+void DmaWriteFifo::serialize(CheckpointOut &cp) const
+{
+    assert(pendingRequests.empty());
+    SERIALIZE_CONTAINER(buffer);
+    SERIALIZE_SCALAR(endAddr);
+    SERIALIZE_SCALAR(nextAddr);
+}
+
+void DmaWriteFifo::unserialize(CheckpointIn &cp)
+{
+    UNSERIALIZE_CONTAINER(buffer);
+    UNSERIALIZE_SCALAR(endAddr);
+    UNSERIALIZE_SCALAR(nextAddr);
+}
+
+// FIFO access methods
+bool DmaWriteFifo::tryPut(const uint8_t *src, size_t len)
+{
+    if (buffer.size() + len <= buffer.capacity()) {
+        buffer.write(src, len);
+        return true;
+    }
+    return false;
+}
+
+void DmaWriteFifo::put(const uint8_t *src, size_t len)
+{
+    panic_if(!tryPut(src, len), "Buffer overflow in DmaWriteFifo::put()");
+}
+
+// DMA control
+void DmaWriteFifo::startWrite(Addr start, size_t size)
+{
+    assert(atEndOfBlock());
+    nextAddr = start;
+    endAddr = start + size;
+    resumeWrite();
+}
+
+void DmaWriteFifo::stopWrite()
+{
+    nextAddr = endAddr;
+    for (auto &p : pendingRequests)
+        p->cancel();
+}
+
+// DMA engine implementation
+void DmaWriteFifo::resumeWrite()
+{
+    if (drainState() == DrainState::Draining)
+        return;
+
+    const bool old_eob(atEndOfBlock());
+
+    if (port.sys->bypassCaches())
+        resumeWriteBypass();
+    else
+        resumeWriteTiming();
+
+    if (!old_eob && atEndOfBlock())
+        onEndOfBlock();
+}
+
+void DmaWriteFifo::resumeWriteBypass()
+{
+    const size_t block_remaining = endAddr - nextAddr;
+    if (block_remaining > 0 && !buffer.empty()) {
+        const size_t drain_size = std::min(block_remaining, buffer.size());
+        std::vector<uint8_t> tmp_buffer;
+        tmp_buffer.resize(drain_size);
+        
+        buffer.read(tmp_buffer.data(), drain_size);
+        
+        DPRINTF(DMA, "Direct write bypass startAddr=%#x xfer_size=%#x\n",
+                nextAddr, drain_size);
+                
+        port.dmaAction(MemCmd::WriteReq, nextAddr, drain_size, nullptr,
+                       tmp_buffer.data(), 0, reqFlags);
+        
+        nextAddr += drain_size;
+    }
+}
+
+void DmaWriteFifo::resumeWriteTiming()
+{
+    while (!freeRequests.empty() && !buffer.empty() && !atEndOfBlock()) {
+        const size_t req_size = std::min({
+            maxReqSize, 
+            endAddr - nextAddr,
+            buffer.size()
+        });
+        if (req_size == 0) break;
+
+        DmaDoneEventUPtr event(std::move(freeRequests.front()));
+        freeRequests.pop_front();
+        
+        // Read data from FIFO into DMA buffer
+        std::vector<uint8_t> tmp(req_size);
+        buffer.read(tmp.data(), req_size);
+        
+        event->reset(tmp.data(), req_size, nextAddr);
+        port.dmaAction(MemCmd::WriteReq, nextAddr, req_size, event.get(),
+                       tmp.data(), 0, reqFlags);
+        
+        nextAddr += req_size;
+        pendingRequests.emplace_back(std::move(event));
+    }
+}
+
+void DmaWriteFifo::dmaDone()
+{
+    const bool old_active = isActive();
+    handlePending();
+    resumeWrite();
+    if (old_active && !isActive())
+        onIdle();
+}
+
+void DmaWriteFifo::handlePending()
+{
+    while (!pendingRequests.empty() && pendingRequests.front()->done()) {
+        DmaDoneEventUPtr event(std::move(pendingRequests.front()));
+        pendingRequests.pop_front();
+        freeRequests.emplace_back(std::move(event));
+    }
+    
+    if (pendingRequests.empty())
+        signalDrainDone();
+        
+}
+
+DrainState DmaWriteFifo::drain()
+{
+    return pendingRequests.empty() ? 
+        DrainState::Drained : DrainState::Draining;
+}
+
+// DmaDoneEvent implementation
+DmaWriteFifo::DmaDoneEvent::DmaDoneEvent(
+    DmaWriteFifo *_parent, size_t max_size)
+    : parent(_parent), _data(max_size)
+{}
+
+void DmaWriteFifo::DmaDoneEvent::kill()
+{
+    parent = nullptr;
+    setFlags(AutoDelete);
+}
+
+void DmaWriteFifo::DmaDoneEvent::cancel()
+{
+    _canceled = true;
+}
+
+void DmaWriteFifo::DmaDoneEvent::reset(
+    const uint8_t *src, size_t size, Addr addr)
+{
+    assert(size <= _data.size());
+    _done = false;
+    _canceled = false;
+    _size = size;
+    _addr = addr;
+    std::memcpy(_data.data(), src, size);
+}
+
+void DmaWriteFifo::DmaDoneEvent::process()
+{
+    if (!parent) return;
+    assert(!_done);
+    _done = true;
+    parent->dmaDone();
+}
+
 } // namespace gem5

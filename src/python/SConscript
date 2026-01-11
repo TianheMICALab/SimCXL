@@ -51,6 +51,7 @@ PySource('gem5.components.boards', 'gem5/components/boards/simple_board.py')
 PySource('gem5.components.boards', 'gem5/components/boards/test_board.py')
 PySource('gem5.components.boards', 'gem5/components/boards/x86_board.py')
 PySource('gem5.components.boards', 'gem5/components/boards/x86_board_cxl_type1.py')
+PySource('gem5.components.boards', 'gem5/components/boards/x86_board_cxl_type2.py')
 PySource('gem5.components.boards', 'gem5/components/boards/arm_board.py')
 PySource('gem5.components.boards',
     "gem5/components/boards/kernel_disk_workload.py")

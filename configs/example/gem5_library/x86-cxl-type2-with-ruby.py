@@ -26,7 +26,7 @@
 
 """
 
-This script shows an example of running a CXL type 1 accelerator(LSU) without memory
+This script shows an example of running a CXL type 2 accelerator(LSU) without memory
 simulation using the gem5 library. It uses the Ruby memory system configured 
 with the CXL_MESI_TWO_LEVEL protocol.
 This simulation boots Ubuntu 18.04 using KVM CPU cores (switching from Atomic/KVM).
@@ -41,13 +41,13 @@ scons defconfig build/X86_CXL_MESI build_opts/X86
 scons setconfig build/X86_CXL_MESI RUBY_PROTOCOL_CXL_MESI_TWO_LEVEL=y
 
 scons build/X86_CXL_MESI/gem5.opt -j21
-sudo ./build/X86_CXL_MESI/gem5.opt configs/example/gem5_library/x86-cxl-type1-with-ruby.py
+sudo ./build/X86_CXL_MESI/gem5.opt configs/example/gem5_library/x86-cxl-type2-with-ruby.py
 ```
 """
 
 from gem5.utils.requires import requires
 from gem5.coherence_protocol import CoherenceProtocol
-from gem5.components.boards.x86_board_cxl_type1 import X86BoardCXLType1
+from gem5.components.boards.x86_board_cxl_type2 import X86BoardCXLType2
 from gem5.components.cachehierarchies.ruby.cxl_mesi_two_level_cache_hierarchy import (
     CXLMESITwoLevelCacheHierarchy,
 )
@@ -83,6 +83,7 @@ cache_hierarchy = CXLMESITwoLevelCacheHierarchy(
 
 # Setup system memory
 memory = DIMM_DDR5_4400(size="3GiB")
+cxl_dram = DIMM_DDR5_4400(size="8GB")
 
 # This is a switchable CPU. We first boot Ubuntu using KVM, then the guest
 # will exit the simulation by calling "m5 exit" (see the `command` variable
@@ -102,13 +103,14 @@ for proc in processor.start:
     proc.core.usePerf = False
 
 # Here we setup the board. The X86Board allows for Full-System X86 simulations.
-board = X86BoardCXLType1(
+board = X86BoardCXLType2(
     clk_freq="2.4GHz",
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
+    cxl_memory=cxl_dram,
     lsu_mode=2,   # 1: single-point access; 2: sequential access; 3: random access
-    lsu_num=256,  # Number of LSU sending requests to the host (bytes)
+    lsu_num=32,  # Number of LSU sending requests to the host (bytes)
     load_store=1, # 1: load, 2: store
 )
 
@@ -124,13 +126,15 @@ board = X86BoardCXLType1(
 # output.
 command = (
     "m5 exit;"
-    + "echo 'This is running on Timing CPU cores.';"
-    + "../home/test_code/LSU_test;"
+    + "numactl -H;"
+    + "m5 resetstats;"
+    # + "/home/test_code/LSU_test;"
+    + "numactl -N 0 -m 1 /home/test_code/simple_test;"
     + "m5 exit;"
 )
 
 board.set_kernel_disk_workload(
-    kernel=KernelResource(local_path='/home/wyj/code/fs_image/vmlinux-6.12'),
+    kernel=KernelResource(local_path='/home/wyj/code/fs_image/vmlinux_numa'),
     disk_image=DiskImageResource(local_path='/home/wyj/code/fs_image/parsec.img'),
     readfile_contents=command,
 )

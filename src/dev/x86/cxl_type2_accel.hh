@@ -1,25 +1,185 @@
-#ifndef __DEV_X86_CXL_MEM_CTRL_HH__
-#define __DEV_X86_CXL_MEM_CTRL_HH__
+#ifndef __DEV_X86_CXL_TYPE2_ACCEL_HH__
+#define __DEV_X86_CXL_TYPE2_ACCEL_HH__
 
 #include <deque>
+#include <vector>
 
 #include "base/addr_range.hh"
 #include "base/trace.hh"
 #include "base/types.hh"
 #include "base/statistics.hh"
-#include "dev/pci/device.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 #include "mem/port.hh"
-#include "params/CXLMemCtrl.hh"
-#include "sim/clocked_object.hh"
+#include "params/CXLType2Accel.hh"
+#include "dev/pci/device.hh"
 
 
 namespace gem5
 {
 
-class CXLMemCtrl : public PciDevice 
+class CXLType2Accel : public PciDevice 
 {
+    private:
+        struct item {
+            unsigned long phy;
+            int num;
+            item() : phy(0), num(0) {}
+        };
+
+        class TimingDevicePort : public RequestPort {
+            public:
+                TimingDevicePort(const std::string& _name, CXLType2Accel* _device)
+                    : RequestPort(_name), device(_device),
+                    retryRespEvent([this]{ sendRetryResp(); }, name())
+                { }
+            protected:
+            CXLType2Accel* device;
+
+            struct TickEvent : public Event
+            {
+                PacketPtr pkt;
+                CXLType2Accel *device;
+
+                TickEvent(CXLType2Accel *_device) : pkt(NULL), device(_device) {}
+                const char *description() const { return "Timing CXL tick"; }
+                void schedule(PacketPtr _pkt, Tick t);
+            };
+            EventFunctionWrapper retryRespEvent;
+        };
+
+        class DcachePort : public TimingDevicePort {
+            public:
+
+                DcachePort(CXLType2Accel *_device)
+                    : TimingDevicePort(_device->name() + ".dcache_port", _device),
+                    tickEvent(_device)
+                {
+                cacheBlockMask = ~(device->getCacheLineSize() - 1);
+                }
+
+                Addr cacheBlockMask;
+            protected:
+
+            /** Snoop a coherence request, we need to check if this causes
+            * a wakeup event on a device that is monitoring an address
+            */
+            virtual void recvTimingSnoopReq(PacketPtr pkt);
+
+            virtual bool recvTimingResp(PacketPtr pkt);
+
+            virtual void recvReqRetry();
+
+            virtual bool isSnooping() const {
+                return true;
+            }
+
+            struct DTickEvent : public TickEvent
+            {
+                DTickEvent(CXLType2Accel *_device)
+                    : TickEvent(_device) {}
+                void process();
+                const char *description() const { return "Timing CXLDevice dcache tick"; }
+            };
+
+            DTickEvent tickEvent;
+
+        };
+
+        class IcachePort : public TimingDevicePort {
+            public:
+
+                IcachePort(CXLType2Accel *_device)
+                    : TimingDevicePort(_device->name() + ".icache_port", _device)
+                { }
+
+            protected:
+
+                virtual bool recvTimingResp(PacketPtr pkt);
+
+                virtual void recvReqRetry();
+        };
+
+        class SplitMainSenderState : public Packet::SenderState {
+            public:
+                int outstanding;
+                PacketPtr fragments[2];
+
+                int
+                getPendingFragment()
+                {
+                    if (fragments[0]) {
+                        return 0;
+                    } else if (fragments[1]) {
+                        return 1;
+                    } else {
+                        return -1;
+                    }
+                }
+        };
+
+        class SplitFragmentSenderState : public Packet::SenderState {
+            public:
+                SplitFragmentSenderState(PacketPtr _bigPkt, int _index) :
+                    bigPkt(_bigPkt), index(_index)
+                {}
+                PacketPtr bigPkt;
+                int index;
+
+                void
+                clearFromParent()
+                {
+                    SplitMainSenderState * main_send_state =
+                        dynamic_cast<SplitMainSenderState *>(bigPkt->senderState);
+                    main_send_state->fragments[index] = NULL;
+                }
+        };
+
+        int lsu_mode;
+        int lsu_num;
+        int load_store;
+
+        int cur_num;
+        int recv_num;
+        int put_param_finished;
+        int LSU_finished;
+        int stage;
+        uint8_t* remote_data;
+
+        item paddr;
+        Addr cur_paddr;
+
+        DcachePort dcachePort;
+        IcachePort icachePort;
+        PacketPtr dcache_pkt;
+        const unsigned int cacheLineSize;
+
+    protected:
+        enum Status
+        {
+            Idle,
+            Running,
+            Faulting,
+            DTBWaitResponse,
+            DcacheRetry,
+            DcacheWaitResponse,
+            DcacheWaitSwitch,
+        };
+
+        enum AccelStatus
+        {
+            // Status of Accelerator
+            Uninitialized,     // Nothing is ready
+            Initialized,       // monitorAddr and paramsAddr are valid
+            // GettingParams,     // Have issued requests for params
+            ExecutingLoop,     // Got all params, actually executing
+            Returning          // Returning the result to the CPU thread
+        };
+
+        Status status;
+        AccelStatus accelStatus;
+        Tick first_issue_time = -1;
+
     protected:
 
         /**
@@ -51,24 +211,24 @@ class CXLMemCtrl : public PciDevice
         {
             private:
 
-                /** The CXLMemCtrl to which this port belongs. */
-                CXLMemCtrl& ctrl;
+                /** The CXLType2Accel to which this port belongs. */
+                CXLType2Accel& ctrl;
 
                 /**
-                * Request port on which CXLMemCtrl sends requests to the back-end memory media.
+                * Request port on which CXLType2Accel sends requests to the back-end memory media.
                 */
                 CXLRequestPort& memReqPort;
 
-                /** Latency in protocol processing by CXLMemCtrl. */
+                /** Latency in protocol processing by CXLType2Accel. */
                 const Cycles protoProcLat;
 
-                /** Address ranges to pass through the CXLMemCtrl */
+                /** Address ranges to pass through the CXLType2Accel */
                 const AddrRange devMemRange;
 
                 /**
                 * Response packet queue. Response packets are held in this
                 * queue for a specified delay to model the processing delay
-                * of the CXLMemCtrl.
+                * of the CXLType2Accel.
                 */
                 std::deque<DeferredPacket> transmitList;
 
@@ -110,12 +270,12 @@ class CXLMemCtrl : public PciDevice
                 *
                 * @param _name the port name including the owner
                 * @param _ctrl the structural owner
-                * @param _memReqPort the request port of CXLMemCtrl
+                * @param _memReqPort the request port of CXLType2Accel
                 * @param _protoProcLat the delay in cycles from receiving to sending
                 * @param _resp_limit the size of the response queue
-                * @param _devMemRange the address range of the CXLMemCtrl
+                * @param _devMemRange the address range of the CXLType2Accel
                 */
-                CXLResponsePort(const std::string& _name, CXLMemCtrl& _ctrl,
+                CXLResponsePort(const std::string& _name, CXLType2Accel& _ctrl,
                                 CXLRequestPort& _memReqPort, Cycles _protoProcLat,
                                 int _resp_limit, AddrRange _devMemRange);
 
@@ -172,21 +332,21 @@ class CXLMemCtrl : public PciDevice
         class CXLRequestPort : public RequestPort
         {
             private:
-                /** The CXLMemCtrl to which this port belongs. */
-                CXLMemCtrl& ctrl;
+                /** The CXLType2Accel to which this port belongs. */
+                CXLType2Accel& ctrl;
 
                 /**
-                * The response port on the other side of the CXLMemCtrl.
+                * The response port on the other side of the CXLType2Accel.
                 */
                 CXLResponsePort& cxlRspPort;
 
-                /** Latency in protocol processing by CXLMemCtrl. */
+                /** Latency in protocol processing by CXLType2Accel. */
                 const Cycles protoProcLat;
 
                 /**
                 * Request packet queue. Request packets are held in this
                 * queue for a specified delay to model the processing delay
-                * of the CXLMemCtrl.
+                * of the CXLType2Accel.
                 */
                 std::deque<DeferredPacket> transmitList;
 
@@ -209,11 +369,11 @@ class CXLMemCtrl : public PciDevice
                 *
                 * @param _name the port name including the owner
                 * @param _ctrl the structural owner
-                * @param _cxlRspPort the response port of CXLMemCtrl
+                * @param _cxlRspPort the response port of CXLType2Accel
                 * @param _protoProcLat the delay in cycles from receiving to sending
                 * @param _req_limit the size of the request queue
                 */
-                CXLRequestPort(const std::string& _name, CXLMemCtrl& _ctrl,
+                CXLRequestPort(const std::string& _name, CXLType2Accel& _ctrl,
                                 CXLResponsePort& _cxlRspPort, Cycles _protoProcLat,
                                 int _req_limit);
 
@@ -243,18 +403,19 @@ class CXLMemCtrl : public PciDevice
                 void recvReqRetry() override;
         };
 
-        /** Response port of the CXLMemCtrl. */
+        /** Response port of the CXLType2Accel. */
         CXLResponsePort cxlRspPort;
 
-        /** Request port of the CXLMemCtrl. */
+        /** Request port of the CXLType2Accel. */
         CXLRequestPort memReqPort;
 
         Tick preRspTick = -1;
-
-        struct CXLCtrlStats : public statistics::Group
-        {
-            CXLCtrlStats(CXLMemCtrl &_ctrl);
     
+        struct CXLStats : public statistics::Group
+        {
+            CXLStats(CXLType2Accel &_ctrl);
+    
+            statistics::Scalar totalLoadLatency;
             statistics::Scalar reqQueFullEvents;
             statistics::Scalar reqRetryCounts;
             statistics::Scalar rspQueFullEvents;
@@ -270,24 +431,42 @@ class CXLMemCtrl : public PciDevice
             statistics::Distribution memToCXLCtrlRsp;
         };
     
-        CXLCtrlStats stats;
+        CXLStats stats;
 
     public:
+        inline unsigned int getCacheLineSize() const { return cacheLineSize; }
+
+        Port &getPort(const std::string &if_name, PortID idx=InvalidPortID) override;
+        AddrRangeList getAddrRanges() const override;
+
+        Addr getPhyAddr(int index);
+
         Tick read(PacketPtr pkt) override;
-
         Tick write(PacketPtr pkt) override;
-
-        Port &getPort(const std::string &if_name,
-            PortID idx=InvalidPortID) override;
 
         void init() override;
 
-        AddrRangeList getAddrRanges() const override;
+        void runLSU();
+        void stage1();
+        void stage2();
 
-        PARAMS(CXLMemCtrl);
-        CXLMemCtrl(const Params &p);
+        void accessMemory(Addr paddr, int size, bool read, uint8_t *data);
+        void sendData(const RequestPtr &req, uint8_t *data, bool read);
+        PacketPtr buildPacket(const RequestPtr &req, bool read);
+        bool handleReadPacket(PacketPtr pkt);
+        bool handleWritePacket();
+        void completeDataAccess(PacketPtr pkt);
+
+        using Params = CXLType2AccelParams;
+        CXLType2Accel(const Params &p);
+
+    private:
+        MemberEventWrapper<&CXLType2Accel::runLSU> runEvent;
+        MemberEventWrapper<&CXLType2Accel::stage2> runStage2;
+        void recvData(PacketPtr pkt);
+        void LSUFinish();
 };
 
 } // namespace gem5
 
-#endif // __DEV_X86_CXL_MEM_CTRL_HH__
+#endif // __DEV_X86_CXL_TYPE2_ACCEL_HH__
