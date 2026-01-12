@@ -7,6 +7,7 @@ SimCXL is a full-system, cycle-level simulator based on gem5 that provides compl
 CXL-DMSim has been integrated into this work.
 
 SimCXL currently supports CXL protocols as follows:
+- CXL.io: Supports both Classic and Ruby subsystems.
 - CXL.cache: Supports Ruby subsystem only.
 - CXL.mem: Supports both Classic and Ruby subsystems.
 
@@ -131,6 +132,8 @@ Notes:
 
 3. Currently, the ATS address translation mechanism and the Back-Invalidate mechanism are not yet implemented.
 
+## Roadmap
+<img src="doc/Roadmap.svg" alt="Roadmap" width="800" />
 
 ## Citation
 If you find SimCXL useful for your own work, please cite our papers as follows.
