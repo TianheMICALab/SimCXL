@@ -9,8 +9,7 @@ CXLMemory::CXLMemory(const Param &p)
     : PciDevice(p),
     _mem(RangeSize(p.BAR0->addr(), p.BAR0->size()), *this),
     _medium_access_lat(ticksToCycles(p.medium_access_lat)),
-    _device_proto_proc_lat(ticksToCycles(p.device_proto_proc_lat)),
-    _cxl_mem_range(p.cxl_mem_range)
+    _device_proto_proc_lat(ticksToCycles(p.device_proto_proc_lat))
     {
         DPRINTF(CXLMemory, "BAR0_addr:0x%lx, BAR0_size:0x%lx\n", p.BAR0->addr(),
             p.BAR0->size());
@@ -37,9 +36,7 @@ Tick CXLMemory::write(PacketPtr pkt) {
 }
 
 AddrRangeList CXLMemory::getAddrRanges() const {
-    AddrRangeList ranges = PciDevice::getAddrRanges();
-    ranges.push_back(_cxl_mem_range);
-    return ranges;
+    return PciDevice::getAddrRanges();;
 }
 
 Tick CXLMemory::process_cxl_mem(PacketPtr pkt) {

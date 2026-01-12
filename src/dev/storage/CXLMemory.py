@@ -8,7 +8,6 @@ class CXLMemory(PciDevice):
     cxx_class = 'gem5::CXLMemory'
     medium_access_lat = Param.Latency('50ns', "Latency of accessing the memory medium of the CXL expander backend")
     device_proto_proc_lat = Param.Latency('15ns', "Latency of the CXL controller processing CXL.mem sub-protocol packets")
-    cxl_mem_range = Param.AddrRange(AddrRange(Addr("4GB"), size="2GB"), "CXL expander memory range that can be identified as system memory")
 
     VendorID = 0x8086
     DeviceID = 0X7890

@@ -98,11 +98,14 @@ memory = DIMM_DDR5_4400(size="3GB")
 # cores for the command we wish to run after boot.
 
 processor = SimpleSwitchableProcessor(
-    starting_core_type=CPUTypes.ATOMIC,
+    starting_core_type=CPUTypes.KVM,
     switch_core_type = CPUTypes.O3 if args.cpu_type == 'O3' else CPUTypes.TIMING,
     isa=ISA.X86,
     num_cores=args.num_cpus,
 )
+
+for proc in processor.start:
+    proc.core.usePerf = False
 
 # Here we setup the board and CXL device memory size. The X86Board allows for Full-System X86 simulations.
 board = X86Board(
@@ -127,7 +130,8 @@ command = (
     "m5 exit;"
     + "numactl -H;"
     + "m5 resetstats;"
-    + "/home/cxl_benchmark/" + args.test_cmd + ";"
+    # + "/home/cxl_benchmark/" + args.test_cmd + ";"
+    + "/home/test_code/test_cxl;"
 )
 
 board.set_kernel_disk_workload(

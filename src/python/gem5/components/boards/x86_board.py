@@ -158,8 +158,6 @@ class X86Board(AbstractSystemBoard, KernelDiskWorkload):
             ]
 
             # Configure the CXL memory
-            self.cxl_mem_range = AddrRange(cxl_mem_start, cxl_mem_end)
-            self.pc.south_bridge.cxlmemory.cxl_mem_range = AddrRange(cxl_mem_start, cxl_mem_end)
             self.pc.south_bridge.cxlmemory.BAR0.size = self._cxl_mem_size
             if self._is_asic:
                 self.pc.south_bridge.cxlmemory.device_proto_proc_lat = Latency("15ns")
@@ -274,8 +272,6 @@ class X86Board(AbstractSystemBoard, KernelDiskWorkload):
             X86E820Entry(addr=0xFFFF0000, size="64kB", range_type=2)
         )
 
-        entries.append(X86E820Entry(addr=0x100000000, size=self._cxl_mem_size, range_type=1))
-
         self.workload.e820_table.entries = entries
 
     @overrides(AbstractSystemBoard)
@@ -325,7 +321,7 @@ class X86Board(AbstractSystemBoard, KernelDiskWorkload):
 
     @overrides(KernelDiskWorkload)
     def get_disk_device(self):
-        return "/dev/hda1"
+        return "/dev/sda1"
 
     @overrides(KernelDiskWorkload)
     def _add_disk_to_board(self, disk_image: AbstractResource):
