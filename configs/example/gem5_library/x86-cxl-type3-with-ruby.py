@@ -129,8 +129,8 @@ command = (
 
 # Please modify the paths of kernel and disk_image according to the location of your files.
 board.set_kernel_disk_workload(
-    kernel=KernelResource(local_path='/home/wyj/code/fs_image/vmlinux_numa'),
-    disk_image=DiskImageResource(local_path='/home/wyj/code/fs_image/parsec.img'),
+    kernel=KernelResource(local_path='/home/xxx/code/fs_image/vmlinux'),
+    disk_image=DiskImageResource(local_path='/home/xxx/code/fs_image/parsec.img'),
     readfile_contents=command,
 )
 

@@ -125,13 +125,13 @@ board = X86BoardCXLType1(
 command = (
     "m5 exit;"
     + "echo 'This is running on Timing CPU cores.';"
-    + "../home/test_code/LSU_test;"
+    + "/home/test_code/LSU_test;"
     + "m5 exit;"
 )
 
 board.set_kernel_disk_workload(
-    kernel=KernelResource(local_path='/home/wyj/code/fs_image/vmlinux-6.12'),
-    disk_image=DiskImageResource(local_path='/home/wyj/code/fs_image/parsec.img'),
+    kernel=KernelResource(local_path='/home/xxx/code/fs_image/vmlinux'),
+    disk_image=DiskImageResource(local_path='/home/xxx/code/fs_image/parsec.img'),
     readfile_contents=command,
 )
 

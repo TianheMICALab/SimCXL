@@ -283,7 +283,7 @@ class X86BoardCXLType2(AbstractSystemBoard, KernelDiskWorkload):
         )
 
         entries.append(
-            X86E820Entry(addr=0x100000000, size=f"{cxl_mem_range.size()}B", range_type=1)
+            X86E820Entry(addr=0x100000000, size=f"{cxl_mem_range.size()}B", range_type=20)
         )
 
         self.workload.e820_table.entries = entries
@@ -337,7 +337,7 @@ class X86BoardCXLType2(AbstractSystemBoard, KernelDiskWorkload):
 
     @overrides(KernelDiskWorkload)
     def get_disk_device(self):
-        return "/dev/hda1"
+        return "/dev/sda1"
 
     @overrides(KernelDiskWorkload)
     def _add_disk_to_board(self, disk_image: AbstractResource):
