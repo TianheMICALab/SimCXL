@@ -124,6 +124,14 @@ CXL Device is recognized as a CPU-less NUMA node in the system. We provide two w
 
 CXL accelerators require customization of device functionality based on specific user requirements. We provide a simple Load Store Unit (LSU) as an example. The LSU includes a device cache; it accesses host memory at cacheline granularity via the CXL.cache protocol and caches the data locally. For a concrete example, please refer to `configs/example/gem5_library/x86-cxl-type1-with-ruby.py`.
 
+Notes:
+1. By default, the three CXL device configurations boot using KVM (taking approximately 10+ seconds). Upon entering the full system, the simulation automatically switches to the Timing CPU to execute test programs. If KVM is unavailable, it can be replaced with the Atomic CPU, though this will increase the full-system boot time to approximately 30 minutes.
+
+2. The Ruby subsystem is significantly slower than the Classic subsystem. To accelerate experiments, we recommend reducing the experimental scale and running multiple gem5 instances in parallel.
+
+3. Currently, the ATS address translation mechanism and the Back-Invalidate mechanism are not yet implemented.
+
+
 ## Citation
 If you find SimCXL useful for your own work, please cite our papers as follows.
 ```tex
