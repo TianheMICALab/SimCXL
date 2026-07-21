@@ -447,7 +447,7 @@ if main['GCC'] + main['CLANG'] > 1:
 
 # Find the gem5 binary target architecture (usually host architecture). The
 # "Target: <target>" is consistent accross gcc and clang at the time of
-# writting this.
+# writing this.
 bin_target_arch = readCommand([main['CXX'], '--verbose'], exception=False)
 main["BIN_TARGET_ARCH"] = (
     "x86_64"
@@ -734,7 +734,7 @@ for variant_path in variant_paths:
                 # constrains than for x86_64. With aarch64, the small code
                 # model enables 4GB distance between symbols. This is
                 # sufficient for the largest ALL/gem5.debug target with all
-                # sanitizers enabled at the time of writting this. Note that
+                # sanitizers enabled at the time of writing this. Note that
                 # the next aarch64 code model is "large" which prevents dynamic
                 # linkage so it should be avoided when possible.
                 pass
